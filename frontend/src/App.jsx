@@ -7,6 +7,7 @@ import Sidebar from './components/Sidebar'
 
 function PrivateLayout({ children }) {
   const token = localStorage.getItem('token')
+  console.log('PrivateLayout', { hasToken: Boolean(token) })
   if (!token) return <Navigate to="/login" />
   return (
     <div style={{ display: 'flex', minHeight: '100vh' }}>

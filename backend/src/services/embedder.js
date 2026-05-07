@@ -1,62 +1,74 @@
-const { ChromaClient } = require('chromadb');
+const weaviate = require('weaviate-client');
 
-const chroma = new ChromaClient({ path: 'http://localhost:8000' });
+let client = null;
+const CLASS_NAME = 'Issue';
 
-let collection = null;
-
-async function getCollection() {
-  if (!collection) {
-    collection = await chroma.getOrCreateCollection({
-      name: 'issues',
-      metadata: { 'hnsw:space': 'cosine' },
+async function getClient() {
+  if (!client) {
+    client = await weaviate.connectToLocal({
+      host: 'localhost',
+      port: 8080,
     });
   }
-  return collection;
+  return client;
 }
 
-// Simple bag-of-words embedding (no external model needed for Week 2)
-// We'll upgrade to real embeddings in Week 3
+async function ensureSchema() {
+  const c = await getClient();
+  const exists = await c.collections.exists(CLASS_NAME);
+  if (!exists) {
+    await c.collections.create({
+      name: CLASS_NAME,
+      vectorizers: weaviate.configure.vectorizer.none(),
+      properties: [
+        { name: 'issueId',  dataType: weaviate.configure.dataType.INT    },
+        { name: 'text',     dataType: weaviate.configure.dataType.TEXT    },
+      ],
+    });
+    console.log('✅ Weaviate schema created');
+  }
+}
+
+// Simple deterministic 128-dim embedding (upgrades to real model in Week 3)
 function simpleEmbed(text) {
   const words = text.toLowerCase().replace(/[^a-z0-9 ]/g, '').split(/\s+/);
-  const vocab = {};
-  words.forEach(w => { vocab[w] = (vocab[w] || 0) + 1; });
-  // Fixed 128-dim vector using hash
   const vec = new Array(128).fill(0);
-  Object.entries(vocab).forEach(([word, count]) => {
+  words.forEach(word => {
     let hash = 0;
     for (const c of word) hash = (hash * 31 + c.charCodeAt(0)) % 128;
-    vec[Math.abs(hash)] += count;
+    vec[Math.abs(hash)] += 1;
   });
-  // Normalize
   const mag = Math.sqrt(vec.reduce((s, v) => s + v * v, 0)) || 1;
   return vec.map(v => v / mag);
 }
 
-async function addIssue(id, text) {
-  const col = await getCollection();
-  const embedding = simpleEmbed(text);
-  await col.add({
-    ids: [String(id)],
-    embeddings: [embedding],
-    documents: [text],
+async function addIssue(issueId, text) {
+  await ensureSchema();
+  const c = await getClient();
+  const collection = c.collections.get(CLASS_NAME);
+
+  await collection.data.insert({
+    properties: { issueId, text },
+    vectors: simpleEmbed(text),
   });
+
+  console.log(`📌 [Weaviate] Stored issue #${issueId}`);
 }
 
 async function findSimilar(text, topK = 3) {
-  const col = await getCollection();
-  const count = await col.count();
-  if (count === 0) return [];
+  await ensureSchema();
+  const c = await getClient();
+  const collection = c.collections.get(CLASS_NAME);
 
-  const embedding = simpleEmbed(text);
-  const results = await col.query({
-    queryEmbeddings: [embedding],
-    nResults: Math.min(topK, count),
+  const result = await collection.query.nearVector(simpleEmbed(text), {
+    limit: topK,
+    returnMetadata: ['distance'],
   });
 
-  return results.ids[0].map((id, i) => ({
-    id,
-    distance: results.distances[0][i],
-    document: results.documents[0][i],
+  return result.objects.map(obj => ({
+    id:       obj.properties.issueId,
+    distance: obj.metadata.distance,
+    document: obj.properties.text,
   }));
 }
 

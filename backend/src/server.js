@@ -17,11 +17,14 @@ const io = new Server(server, {
 app.set('io', io);
 
 app.use(cors({ origin: process.env.FRONTEND_URL, credentials: true }));
-app.use('/webhook', express.raw({ type: '*/*' }));  // raw for webhook signature (future)
-app.use(express.json());
 
-app.use('/auth', authRoutes);
+// Webhook MUST use json parser — not raw
+app.use('/webhook', express.json());
 app.use('/webhook', webhookRoutes);
+
+// All other routes use json too
+app.use(express.json());
+app.use('/auth', authRoutes);
 app.use('/api/issues', issueRoutes);
 
 app.get('/health', (_, res) => res.json({ status: 'ok' }));
