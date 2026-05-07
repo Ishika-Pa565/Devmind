@@ -67,14 +67,12 @@ Severity guide:
   await addIssue(issueId, issueText);
 
   // 5. Save triage results to DB
-  await db.query(
-  `UPDATE issues
-   SET severity = $1, component_tag = $2, is_duplicate = $3, duplicate_of = $4,
-       reasoning = $5, updated_at = NOW()
-   WHERE id = $6`,
-  [classification.severity, classification.component, isDuplicate, duplicateOf,
-   classification.reasoning, issueId]
-  );
+  await db.query( 
+   `UPDATE issues
+    SET severity = $1, component_tag = $2, is_duplicate = $3, duplicate_of = $4, updated_at = NOW()
+    WHERE id = $5`,
+    [classification.severity, classification.component, isDuplicate, duplicateOf, issueId]
+   );
 
   const result = { ...classification, isDuplicate, duplicateOf };
 
